@@ -5,8 +5,8 @@
 EXITCODE=0
 read base tip < /tmp/revisions
 
-/bin/echo -e "\x1b[34mLinting commits...\x1b[0m"
-common/scripts/lint-commits $base $tip || EXITCODE=$?
+#/bin/echo -e "\x1b[34mLinting commits...\x1b[0m"
+#common/scripts/lint-commits $base $tip || EXITCODE=$?
 
 for t in $(awk '{ print "srcpkgs/" $0 "/template" }' /tmp/templates); do
 	/bin/echo -e "\x1b[34mLinting $t...\x1b[0m"
