@@ -1,0 +1,168 @@
+From 7c185e7ea43fb8382a81062526f2d884ad789eb9 Mon Sep 17 00:00:00 2001
+From: Assaf Berg <asssaf@users.noreply.github.com>
+Date: Tue, 4 Aug 2026 18:57:29 -0700
+Subject: [PATCH] Support optional reboot parameter via direct syscall and
+ /run/reboot-param (#1)
+
+* reboot: support optional reboot parameter with direct syscall and file-passing for graceful shutdown
+
+This commit updates the reboot applet and init process to support passing a second parameter (e.g. "2" or "0 tryboot") to the reboot syscall.
+
+1. Added necessary Linux reboot syscall constants and magic numbers to init/reboot.h.
+2. In init/halt.c, parsed any optional arguments provided to 'reboot'. If forcing with '-f', we call syscall(SYS_reboot, ...) with LINUX_REBOOT_CMD_RESTART2 directly to bypass the libc wrapper. If not forcing, we write the parameter to '/run/reboot-param' and notify init.
+3. In init/init.c, during low-level reboot, we check if '/run/reboot-param' exists. If so, we read it, delete it, and call the syscall using LINUX_REBOOT_CMD_RESTART2 with the parameter.
+4. Added REBOOT_PARAM to usage instructions in init/halt.c.
+
+Co-authored-by: asssaf <445552+asssaf@users.noreply.github.com>
+
+* reboot: update optional parameter handling with REBOOT_PARAM_FILE macro and safer file handling
+
+- Used the REBOOT_PARAM_FILE macro for "/run/reboot-param" defined in reboot.h.
+- Configured the file creation permissions to be 0600 instead of 0666.
+- Ensured that the unlink of the file always happens when the file was successfully opened, even if read errors or an empty file occur.
+
+Co-authored-by: asssaf <445552+asssaf@users.noreply.github.com>
+
+---------
+
+Co-authored-by: google-labs-jules[bot] <161369871+google-labs-jules[bot]@users.noreply.github.com>
+Co-authored-by: asssaf <445552+asssaf@users.noreply.github.com>
+---
+ init/halt.c   | 39 ++++++++++++++++++++++++++++++++++++++-
+ init/init.c   | 18 ++++++++++++++++++
+ init/reboot.h | 14 ++++++++++++++
+ 3 files changed, 70 insertions(+), 1 deletion(-)
+
+diff --git a/init/halt.c b/init/halt.c
+index fe3cb9e75..c41308012 100644
+--- a/init/halt.c
++++ b/init/halt.c
+@@ -84,7 +84,7 @@
+ //usage:     "\n	-f	Force (don't go through init)"
+ //usage:
+ //usage:#define reboot_trivial_usage
+-//usage:       "[-d DELAY] [-nf]"
++//usage:       "[-d DELAY] [-nf] [REBOOT_PARAM]"
+ //usage:#define reboot_full_usage "\n\n"
+ //usage:       "Reboot the system\n"
+ //usage:     "\n	-d SEC	Delay interval"
+@@ -173,6 +173,7 @@ int halt_main(int argc UNUSED_PARAM, char **argv)
+ 
+ 	int delay = 0;
+ 	int which, flags, rc;
++	char *reboot_param = NULL;
+ 
+ 	/* Figure out which applet we're running */
+ 	if (ENABLE_HALT && !ENABLE_POWEROFF && !ENABLE_REBOOT)
+@@ -194,6 +195,22 @@ int halt_main(int argc UNUSED_PARAM, char **argv)
+ 	 */
+ 	flags = getopt32(argv, "d:+nfwi", &delay);
+ 
++	if (which == 2 && argv[optind]) {
++		int i;
++		int len = 0;
++		for (i = optind; argv[i]; i++) {
++			len += strlen(argv[i]) + 1;
++		}
++		reboot_param = xmalloc(len);
++		reboot_param[0] = '\0';
++		for (i = optind; argv[i]; i++) {
++			strcat(reboot_param, argv[i]);
++			if (argv[i+1]) {
++				strcat(reboot_param, " ");
++			}
++		}
++	}
++
+ 	sleep(delay);
+ 
+ 	write_wtmp();
+@@ -204,6 +221,14 @@ int halt_main(int argc UNUSED_PARAM, char **argv)
+ 	if (!(flags & 2)) /* no -n */
+ 		sync();
+ 
++	if (reboot_param && !(flags & 4)) {
++		int fd = open(REBOOT_PARAM_FILE, O_WRONLY | O_CREAT | O_TRUNC, 0600);
++		if (fd >= 0) {
++			xwrite_str(fd, reboot_param);
++			close(fd);
++		}
++	}
++
+ 	/* Perform action. */
+ 	rc = 1;
+ 	if (!(flags & 4)) { /* no -f */
+@@ -240,7 +265,19 @@ int halt_main(int argc UNUSED_PARAM, char **argv)
+ 			}
+ 		}
+ 	} else {
++#if defined(__linux__) && defined(SYS_reboot)
++		if (reboot_param) {
++			rc = syscall(SYS_reboot, LINUX_REBOOT_MAGIC1, LINUX_REBOOT_MAGIC2, LINUX_REBOOT_CMD_RESTART2, reboot_param);
++		} else {
++			rc = reboot(magic[which]);
++		}
++#else
+ 		rc = reboot(magic[which]);
++#endif
++	}
++
++	if (ENABLE_FEATURE_CLEAN_UP) {
++		free(reboot_param);
+ 	}
+ 
+ 	if (rc)
+diff --git a/init/init.c b/init/init.c
+index efab5dcb4..8a033f925 100644
+--- a/init/init.c
++++ b/init/init.c
+@@ -743,6 +743,24 @@ static void pause_and_low_level_reboot(unsigned magic)
+ 	 * the init process exits... */
+ 	pid = vfork();
+ 	if (pid == 0) { /* child */
++#if defined(__linux__) && defined(SYS_reboot)
++		if (magic == RB_AUTOBOOT) {
++			int fd = open(REBOOT_PARAM_FILE, O_RDONLY);
++			if (fd >= 0) {
++				char param[256];
++				ssize_t n = read(fd, param, sizeof(param) - 1);
++				close(fd);
++				unlink(REBOOT_PARAM_FILE);
++				if (n > 0) {
++					param[n] = '\0';
++					while (n > 0 && (param[n - 1] == '\n' || param[n - 1] == '\r')) {
++						param[--n] = '\0';
++					}
++					syscall(SYS_reboot, LINUX_REBOOT_MAGIC1, LINUX_REBOOT_MAGIC2, LINUX_REBOOT_CMD_RESTART2, param);
++				}
++			}
++		}
++#endif
+ 		reboot(magic);
+ 		_exit(EXIT_SUCCESS);
+ 	}
+diff --git a/init/reboot.h b/init/reboot.h
+index 949763949..eeec60046 100644
+--- a/init/reboot.h
++++ b/init/reboot.h
+@@ -4,6 +4,20 @@
+  */
+ 
+ #include <sys/reboot.h>
++#include <sys/syscall.h>
++#include <unistd.h>
++
++#ifndef LINUX_REBOOT_MAGIC1
++# define LINUX_REBOOT_MAGIC1 0xfee1dead
++#endif
++#ifndef LINUX_REBOOT_MAGIC2
++# define LINUX_REBOOT_MAGIC2 672274793
++#endif
++#ifndef LINUX_REBOOT_CMD_RESTART2
++# define LINUX_REBOOT_CMD_RESTART2 0xA1B2C3D4
++#endif
++
++#define REBOOT_PARAM_FILE "/run/reboot-param"
+ 
+ #ifndef RB_HALT_SYSTEM
+ # if defined(__linux__)

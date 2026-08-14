@@ -1,0 +1,11 @@
+--- orig/files/dotconfig	2026-07-02 16:05:59.975299458 -0700
++++ orig/files/dotconfig-watchdog.new	2026-07-02 16:42:52.677870739 -0700
+@@ -837,7 +837,7 @@
+ # CONFIG_UBIUPDATEVOL is not set
+ # CONFIG_UBIRENAME is not set
+ # CONFIG_VOLNAME is not set
+-# CONFIG_WATCHDOG is not set
++CONFIG_WATCHDOG=y
+ # CONFIG_FEATURE_WATCHDOG_OPEN_TWICE is not set
+ 
+ #

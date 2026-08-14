@@ -1,0 +1,13 @@
+--- orig/files/dotconfig	2026-07-02 16:05:59.975299458 -0700
++++ orig/files/dotconfig-runit.new	2026-07-02 17:06:45.119534278 -0700
+@@ -1076,8 +1076,8 @@
+ # CONFIG_ENVUIDGID is not set
+ # CONFIG_ENVDIR is not set
+ # CONFIG_SOFTLIMIT is not set
+-# CONFIG_RUNSV is not set
+-# CONFIG_RUNSVDIR is not set
++CONFIG_RUNSV=y
++CONFIG_RUNSVDIR=y
+ # CONFIG_FEATURE_RUNSVDIR_LOG is not set
+ CONFIG_SV=y
+ CONFIG_SV_DEFAULT_SERVICE_DIR="/var/service"
