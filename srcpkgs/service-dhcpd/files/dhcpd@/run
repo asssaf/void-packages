@@ -1,0 +1,37 @@
+#!/bin/sh
+
+set -eu
+
+exec 2>&1
+
+# shuck: source=/dev/null
+[ -r ./conf ] && . ./conf
+
+modprobe brcmfmac
+
+echo "Waiting for ${DEVICE}..."
+while ! grep -q "${DEVICE}:" /proc/net/dev
+do
+        sleep 5
+done
+
+
+echo "Starting dhcp server for ${DEVICE}"
+
+ifconfig $DEVICE ${NETWORK}.1 netmask 255.255.255.0 broadcast ${NETWORK}.255 up
+
+cat > "/run/udhcpd-${DEVICE}.conf" <<DHCPDCONF
+start ${NETWORK}.100
+end ${NETWORK}.200
+interface $DEVICE
+lease_file /var/run/udhcpd-${DEVICE}.leases
+option subnet 255.255.255.0
+option router ${NETWORK}.1
+option lease 43200
+#option dns ${NETWORK}.1
+option dns 8.8.8.8
+option domain local
+DHCPDCONF
+
+touch "/var/run/udhcpd-${DEVICE}.leases"
+exec udhcpd -f "/run/udhcpd-${DEVICE}.conf"

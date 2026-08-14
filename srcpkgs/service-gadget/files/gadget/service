@@ -1,0 +1,131 @@
+#!/bin/sh
+# shuck:disable-file=X052
+
+set -eux
+
+exec 2>&1
+
+CONFIG_PATH="/sys/kernel/config"
+GADGET_PATH="${CONFIG_PATH}/usb_gadget/pi"
+
+ID_VENDOR_ETHERNET="0x0bda"
+ID_PRODUCT_ETHERNET="0x8153"
+#ID_VENDOR_LINUX_FOUNDATION="0x1d6b"
+#ID_PRODUCT_COMPOSITE="0x0104"
+
+ID_VENDOR="$ID_VENDOR_ETHERNET"
+ID_PRODUCT="$ID_PRODUCT_ETHERNET"
+SERIAL_NUMBER="fedcba9876543210"
+
+function enable() {
+	ls /sys/class/udc > "${GADGET_PATH}/UDC"
+}
+
+
+function disable() {
+	echo "" > "${GADGET_PATH}/UDC"
+}
+
+
+function create_configuration() {
+	mkdir -p "${GADGET_PATH}/configs/c.1/strings/0x409"
+	echo "Config 1: ECM network" > "${GADGET_PATH}/configs/c.1/strings/0x409/configuration"
+	echo 250 > "${GADGET_PATH}/configs/c.1/MaxPower"
+}
+
+
+function remove_configuration() {
+	rmdir "${GADGET_PATH}/configs/c.1/strings/0x409"
+	rmdir "${GADGET_PATH}/configs/c.1"
+}
+
+
+
+function create_serial_function() {
+	mkdir -p "${GADGET_PATH}/functions/acm.usb0"
+	ln -s "${GADGET_PATH}/functions/acm.usb0" "${GADGET_PATH}/configs/c.1/"
+}
+
+
+function remove_serial_function() {
+	rm "${GADGET_PATH}/configs/c.1/acm.usb0"
+	rmdir "${GADGET_PATH}/functions/acm.usb0"
+}
+
+
+function create_ethernet_function() {
+	mkdir -p "${GADGET_PATH}/functions/ecm.usb0"
+	# first byte of address must be even
+	#HOST="48:6f:73:74:50:43" # "HostPC"
+	#SELF="42:61:64:55:53:42" # "BadUSB"
+	#echo $HOST > "${GADGET_PATH}/functions/ecm.usb0/host_addr"
+	#echo $SELF > "${GADGET_PATH}/functions/ecm.usb0/dev_addr"
+	ln -s "${GADGET_PATH}/functions/ecm.usb0" "${GADGET_PATH}/configs/c.1/"
+}
+
+
+function remove_ethernet_function() {
+	rm "${GADGET_PATH}/configs/c.1/ecm.usb0"
+	rmdir "${GADGET_PATH}/functions/ecm.usb0"
+}
+
+
+function create_gadget() {
+	mkdir "$GADGET_PATH"
+
+	echo "$ID_VENDOR" > "${GADGET_PATH}/idVendor"
+	echo "$ID_PRODUCT" > "${GADGET_PATH}/idProduct"
+
+	echo 0x0100 > "${GADGET_PATH}/bcdDevice" # v1.0.0
+	echo 0x0200 > "${GADGET_PATH}/bcdUSB" # USB2
+
+	mkdir -p "${GADGET_PATH}/strings/0x409"
+	echo "$SERIAL_NUMBER" > "${GADGET_PATH}/strings/0x409/serialnumber"
+	echo "nobody" > "${GADGET_PATH}/strings/0x409/manufacturer"
+	echo "Composite USB Device" > "${GADGET_PATH}/strings/0x409/product"
+
+}
+
+
+function remove_gadget() {
+	rmdir "${GADGET_PATH}/strings/0x409"
+	sleep 1
+	rmdir "${GADGET_PATH}"
+}
+
+
+function start() {
+	modprobe libcomposite
+	mount -t configfs none "$CONFIG_PATH"
+
+	create_gadget
+	create_configuration
+	create_serial_function
+	create_ethernet_function
+	enable
+	sv up getty@ttyGS0
+}
+
+
+function stop() {
+	sv down getty@ttyGS0
+	ifconfig usb0 down
+	disable
+
+	remove_ethernet_function
+	remove_serial_function
+	remove_configuration
+	remove_gadget
+
+	umount "$CONFIG_PATH"
+}
+
+
+case $1 in
+	start|stop|enable|disable)
+		$1
+		;;
+	*)
+		echo "Invalid command: $1"
+		;;
+esac

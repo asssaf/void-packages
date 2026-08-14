@@ -1,0 +1,12 @@
+# Template file for 'service-getty'
+pkgname=service-getty
+version=0.0.1
+revision=1
+short_desc="Service for managing gettys"
+maintainer="Orphaned <orphan@voidlinux.org>"
+license="GPL-2.0-only"
+homepage="https://github.com/asssaf/void-packages"
+
+do_install() {
+	vsv getty@
+}

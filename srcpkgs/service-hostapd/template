@@ -1,0 +1,13 @@
+# Template file for 'service-hostapd'
+pkgname=service-hostapd
+version=0.0.1
+revision=1
+depends="hostapd iw"
+short_desc="Service for managing hostapd"
+maintainer="Orphaned <orphan@voidlinux.org>"
+license="GPL-2.0-only"
+homepage="https://github.com/asssaf/void-packages"
+
+do_install() {
+	vsv hostapd@
+}
