@@ -59,6 +59,8 @@ jobs:
     name: Build packages
     runs-on: ubuntu-latest
     if: "!contains(github.event.pull_request.title, '[ci skip]') && !contains(github.event.pull_request.body, '[ci skip]')"
+    outputs:
+      templates: ${{ steps.output-templates.outputs.templates }}
 
     container:
       image: ghcr.io/void-linux/void-${{ matrix.config.libc }}-full
@@ -141,3 +143,48 @@ jobs:
           mkdir -p /check-install &&
           chown builder:builder /check-install &&
           sudo -Eu builder common/travis/check-install.sh "$BOOTSTRAP" "$ARCH"
+
+
+      - name: Output templates
+        id: output-templates
+        run: paste -sd, /tmp/templates | sed 's/[^,]\+/"&"/g;s/.*/templates=[&]/' >> $GITHUB_OUTPUT
+
+
+  publish:
+    needs: build
+    if: "contains(github.event.pull_request.title, '[ci-publish]') || contains(github.event.pull_request.body, '[ci-publish]')"
+    permissions:
+      contents: read
+      packages: write
+    strategy:
+      matrix:
+        template: ${{ fromJson(needs.build.outputs.templates) }}
+        config:
+          - { arch: x86_64-musl,  host: x86_64-musl, libc: musl,  platform: linux/amd64, test: 1 }
+          - { arch: armv6l-musl,  host: x86_64-musl, libc: musl,  platform: linux/amd64, test: 0 }
+          - { arch: aarch64-musl, host: x86_64-musl, libc: musl,  platform: linux/amd64, test: 0 }
+
+    runs-on: ubuntu-latest
+
+    env:
+      IMAGE: ghcr.io/asssaf/void-packages-${{ matrix.template }}:${{ matrix.config.arch }}-latest
+
+    steps:
+      - name: Login to GHCR
+        uses: docker/login-action@af1e73f918a031802d376d3c8bbc3fe56130a9b0
+        # v4.4.0, verified via git ls-remote
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Download artifact
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: binpkgs-${{ matrix.config.arch }}
+          path: ./
+
+      - name: Publish image
+        run: |
+          tar c ${{ matrix.template }}*.xbps | docker import - "${IMAGE}"
+          docker push "${IMAGE}"
