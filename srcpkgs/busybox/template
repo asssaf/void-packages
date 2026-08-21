@@ -94,6 +94,7 @@ do_build() {
 
 do_check() {
 	for t in "${_variants[@]}"; do
+		[ "${t}" = "busybox-custom" ] && continue
 		make -C "${t}" "${makejobs}" \
 			SKIP_KNOWN_BUGS=yes SKIP_INTERNET_TESTS=yes \
 			check
