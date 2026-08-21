@@ -1,0 +1,7 @@
+#!/bin/sh
+
+set -eu
+
+exec 2>&1
+
+grep -q "ap0:" /proc/net/dev && iw dev ap0 del

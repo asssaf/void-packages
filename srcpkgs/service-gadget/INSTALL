@@ -1,0 +1,13 @@
+SERVICE=gadget
+
+case "$ACTION" in
+    post)
+        # Only enable on fresh install, or handle re-installations safely
+        if [ "$UPDATE" = "no" ]; then
+            if [ -d /etc/sv/${SERVICE} ] && [ ! -e /var/service/${SERVICE} ]; then
+                ln -s /etc/sv/${SERVICE} /var/service/
+                echo "Enabled ${SERVICE} service."
+            fi
+        fi
+        ;;
+esac

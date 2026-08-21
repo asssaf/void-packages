@@ -1,0 +1,12 @@
+# Template file for 'service-gadget'
+pkgname=service-gadget
+version=0.0.1
+revision=1
+short_desc="Service for managing usb gadget configuration"
+maintainer="Orphaned <orphan@voidlinux.org>"
+license="GPL-2.0-only"
+homepage="https://github.com/asssaf/void-packages"
+
+do_install() {
+	vsv gadget
+}

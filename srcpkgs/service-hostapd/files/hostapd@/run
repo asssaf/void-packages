@@ -1,0 +1,50 @@
+#!/bin/sh
+exec 2>&1
+
+# shuck: source=/dev/null
+[ -r "./conf" ] && . ./conf
+
+: ${SSID:=test}
+: ${PASSPHRASE:=testtest}
+: ${MODE:=g}
+: ${VIF:=ap0}
+
+echo "Waiting for ${DEVICE}..."
+while ! grep -q "${DEVICE}:" /proc/net/dev
+do
+        sleep 5
+done
+
+
+echo "Starting hostapd for ${DEVICE}"
+
+# get phy index
+INDEX="$(iw dev $DEVICE info | sed -n 's/^.*wiphy \([[:digit:]]\+\).*$/\1/p')"
+
+iw phy phy${INDEX} interface add ${VIF} type __ap
+
+# get current wpa channel:
+CHANNEL="$(iw dev $DEVICE info |sed -n 's/^.*channel \([[:digit:]]\+\).*$/\1/p')"
+echo "${DEVICE} is using channel ${CHANNEL}"
+
+
+cat > /run/hostapd-${DEVICE}.conf <<HOSTAPDCONF
+ctrl_interface=/var/run/hostapd-${DEVICE}
+ctrl_interface_group=0
+interface=${VIF}
+driver=nl80211
+ssid=${SSID}
+hw_mode=${MODE}
+# channel should match what wpa_supplicant is using
+channel=${CHANNEL}
+wmm_enabled=0
+macaddr_acl=0
+auth_algs=1
+wpa=2
+wpa_passphrase=${PASSPHRASE}
+wpa_key_mgmt=WPA-PSK
+wpa_pairwise=TKIP CCMP
+rsn_pairwise=CCMP
+HOSTAPDCONF
+
+exec hostapd /run/hostapd-${DEVICE}.conf 2>&1
