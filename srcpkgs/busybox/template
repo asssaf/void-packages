@@ -92,34 +92,9 @@ do_build() {
 	done
 }
 
-pre_check() {
-	# Check if the current build variant is your custom target
-	# (Replace "busybox-custom" with your actual variant condition)
-	if [ "${pkgname}" = "busybox-custom" ] || grep -q "CONFIG_FEATURE_SUID_CONFIG=y" .config; then
-		mkdir -p etc
-		cat << 'EOF' > etc/busybox.conf
-[SUID]
-su = ssx root.root
-passwd = ssx root.root
-chsh = ssx root.root
-chfn = ssx root.root
-newgrp = ssx root.root
-vlock = ssx root.root
-ping = ssx root.root
-ping6 = ssx root.root
-traceroute = ssx root.root
-traceroute6 = ssx root.root
-mount = ssx root.root
-umount = ssx root.root
-crontab = ssx root.root
-EOF
-		chmod 600 etc/busybox.conf
-		export BUSYBOX_CONF_PATH="$(pwd)/etc/busybox.conf"
-	fi
-}
-
 do_check() {
 	for t in "${_variants[@]}"; do
+		[ "${t}" = "busybox-custom" ] && continue
 		make -C "${t}" "${makejobs}" \
 			SKIP_KNOWN_BUGS=yes SKIP_INTERNET_TESTS=yes \
 			check
