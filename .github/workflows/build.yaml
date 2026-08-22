@@ -9,6 +9,12 @@ on:
       - 'ci-**'
     paths:
       - 'srcpkgs/**'
+  workflow_dispatch:
+    inputs:
+      templates:
+        description: Templates to build, space separated
+        type: string
+        required: true
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -46,7 +52,12 @@ jobs:
           common/travis/fetch-xtools.sh
 
       - name: Find changed templates
-        run: sudo -Eu builder common/travis/changed_templates.sh
+        run: |
+          if [ "$GITHUB_EVENT_NAME" = "workflow_dispatch" ]; then
+            ./xbps-src sort-dependencies ${{ inputs.templates }} | tee /tmp/templates
+          else
+            sudo -Eu builder common/travis/changed_templates.sh
+          fi
 
       - name: Run lints
         run: |
