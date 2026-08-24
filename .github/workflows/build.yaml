@@ -15,6 +15,10 @@ on:
         description: Templates to build, space separated
         type: string
         required: true
+      publish:
+        description: Publish a package
+        type: boolean
+        default: false
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -123,6 +127,11 @@ jobs:
       - name: Build and check packages
         run: sudo -Eu builder common/travis/build.sh "$BOOTSTRAP" "$ARCH" "$TEST"
 
+      - name: Convert packages
+        run: |
+          xbps-install -Sy squashfs-tools zstd
+          sudo -Eu builder common/travis/convert-pkg.sh
+
       - name: Fix nodejs installation for actions
         run: |
           xbps-install -y nodejs
@@ -164,7 +173,7 @@ jobs:
 
   publish:
     needs: build
-    if: "contains(github.event.pull_request.title, '[ci-publish]') || contains(github.event.pull_request.body, '[ci-publish]')"
+    if: "contains(github.event.pull_request.title, '[ci-publish]') || contains(github.event.pull_request.body, '[ci-publish]') || inputs.publish"
     permissions:
       contents: read
       packages: write
@@ -198,5 +207,5 @@ jobs:
 
       - name: Publish image
         run: |
-          tar c ${{ matrix.template }}*.xbps | docker import - "${IMAGE}"
+          tar c ${{ matrix.template }}*.xbps ${{ matrix.template }}.* | docker import - "${IMAGE}"
           docker push "${IMAGE}"
