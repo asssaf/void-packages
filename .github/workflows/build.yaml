@@ -1,4 +1,5 @@
 name: Check build
+run-name: Check build ref:${{ github.ref_name }} templates:"${{ inputs.templates }}" publish:${{ inputs.publish }} skip_build:${{ inputs.skip_build }}
 
 on:
   pull_request:
@@ -19,6 +20,10 @@ on:
         description: Publish a package
         type: boolean
         default: false
+      skip_build:
+        description: Skip build if a package already exists in the repo
+        type: boolean
+        default: true
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -71,7 +76,9 @@ jobs:
     runs-on: ubuntu-latest
     if: "!contains(github.event.pull_request.title, '[ci skip]') && !contains(github.event.pull_request.body, '[ci skip]')"
     outputs:
-      templates: ${{ steps.output-templates.outputs.templates }}
+      x86_64-musl_templates: ${{ steps.output-templates.outputs.x86_64-musl_templates }}
+      armv6l-musl_templates: ${{ steps.output-templates.outputs.armv6l-musl_templates }}
+      aarch64-musl_templates: ${{ steps.output-templates.outputs.aarch64-musl_templates }}
 
     container:
       image: ghcr.io/void-linux/void-${{ matrix.config.libc }}-full
@@ -91,9 +98,9 @@ jobs:
           #- { arch: i686,         host: i686,        libc: glibc, platform: linux/386,   test: 1 }
           #- { arch: aarch64,      host: x86_64,      libc: glibc, platform: linux/amd64, test: 0 }
           #- { arch: armv7l,       host: x86_64,      libc: glibc, platform: linux/amd64, test: 0 }
-          - { arch: x86_64-musl,  host: x86_64-musl, libc: musl,  platform: linux/amd64, test: 1 }
-          - { arch: armv6l-musl,  host: x86_64-musl, libc: musl,  platform: linux/amd64, test: 0 }
-          - { arch: aarch64-musl, host: x86_64-musl, libc: musl,  platform: linux/amd64, test: 0 }
+          - { arch: x86_64-musl,  host: x86_64-musl, libc: musl,  platform: linux/amd64, test: 1, repo: "https://repo-default.voidlinux.org/current/musl" }
+          - { arch: armv6l-musl,  host: x86_64-musl, libc: musl,  platform: linux/amd64, test: 0, repo: "https://repo-default.voidlinux.org/current/musl" }
+          - { arch: aarch64-musl, host: x86_64-musl, libc: musl,  platform: linux/amd64, test: 0, repo: "https://repo-default.voidlinux.org/current/aarch64" }
 
     steps:
       - name: Prepare container
@@ -117,32 +124,37 @@ jobs:
           common/travis/fetch-xtools.sh
 
       - name: Find changed templates
+        shell: bash
         run: |
+          set -exo pipefail
           if [ "$GITHUB_EVENT_NAME" = "workflow_dispatch" ]; then
-            sudo -Eu builder ./xbps-src sort-dependencies ${{ inputs.templates }} | tee /tmp/templates
+            if [ "${{ inputs.skip_build }}" = "true" ]
+            then
+              XBPS_ARCH=${{ matrix.config.arch }} xbps-install -Sy -i --repository "${{ matrix.config.repo }}"
+
+              touch /tmp/templates
+              for PKG in ${{ inputs.templates }}
+              do
+                if XBPS_ARCH=${{ matrix.config.arch }} xbps-query --repository "${{ matrix.config.repo }}" "$PKG"
+                then
+                  echo "$PKG will be downloaded"
+                  echo "$PKG" >> /tmp/download
+                else
+                  echo "$PKG will be built"
+                  echo "$PKG" >> /tmp/build
+                fi
+              done
+            fi
+            if [ -e "/tmp/build" ]
+            then
+              sudo -Eu builder ./xbps-src sort-dependencies $(cat /tmp/build) | tee /tmp/templates
+            fi
           else
             sudo -Eu builder common/travis/changed_templates.sh
           fi
 
       - name: Build and check packages
         run: sudo -Eu builder common/travis/build.sh "$BOOTSTRAP" "$ARCH" "$TEST"
-
-      - name: Convert packages
-        run: |
-          xbps-install -Sy squashfs-tools zstd
-          sudo -Eu builder common/travis/convert-pkg.sh
-
-      - name: Fix nodejs installation for actions
-        run: |
-          xbps-install -y nodejs
-          mkdir -p /__e/node24/bin
-          ln -sf /usr/bin/node /__e/node24/bin/node
-
-      - name: Upload packages artifact
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
-        with:
-          name: binpkgs-${{ matrix.config.arch }}
-          path: "hostdir/binpkgs"
 
       - name: Show files
         run: sudo -Eu builder common/travis/show_files.sh "$BOOTSTRAP" "$ARCH"
@@ -165,10 +177,43 @@ jobs:
           chown builder:builder /check-install &&
           sudo -Eu builder common/travis/check-install.sh "$BOOTSTRAP" "$ARCH"
 
+      - name: Convert packages
+        shell: bash
+        run: |
+          set -exo pipefail
+          xbps-install -Sy squashfs-tools zstd
+
+          touch /tmp/build
+          cp /tmp/build /tmp/templates
+          if [ -e "/tmp/download" ]
+          then
+            mkdir -p /target/var/db/xbps
+            ln -s /var/db/xbps/keys /target/var/db/xbps/
+            XBPS_TARGET_ARCH=${{ matrix.config.arch }} xbps-install -Sy -R ${{ matrix.config.repo }} -r /target -D $(cat /tmp/download)
+            cp -s /target/var/cache/xbps/* hostdir/binpkgs/
+            cat /tmp/download >> /tmp/templates
+          fi
+
+          common/travis/convert-pkg.sh "$ARCH"
+
+      - name: Fix nodejs installation for actions
+        run: |
+          xbps-install -y nodejs
+          mkdir -p /__e/node24/bin
+          ln -sf /usr/bin/node /__e/node24/bin/node
+
+      - name: Upload packages artifact
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: binpkgs-${{ matrix.config.arch }}
+          path: "hostdir/binpkgs"
 
       - name: Output templates
         id: output-templates
-        run: paste -sd, /tmp/templates | sed 's/[^,]\+/"&"/g;s/.*/templates=[&]/' >> $GITHUB_OUTPUT
+        run: |
+          echo "${{ matrix.config.arch }}_templates<<EOF" >> $GITHUB_OUTPUT
+          cat /tmp/converted >> $GITHUB_OUTPUT
+          echo "EOF" >> $GITHUB_OUTPUT
 
 
   publish:
@@ -179,7 +224,6 @@ jobs:
       packages: write
     strategy:
       matrix:
-        template: ${{ fromJson(needs.build.outputs.templates) }}
         config:
           - { arch: x86_64-musl,  host: x86_64-musl, libc: musl,  platform: linux/amd64, test: 1 }
           - { arch: armv6l-musl,  host: x86_64-musl, libc: musl,  platform: linux/amd64, test: 0 }
@@ -200,12 +244,22 @@ jobs:
           password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Download artifact
+        id: download_step
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
           name: binpkgs-${{ matrix.config.arch }}
           path: ./
+        continue-on-error: true
 
       - name: Publish image
+        if: steps.download_step.outcome == 'success'
+        shell: bash
         run: |
-          tar c ${{ matrix.template }}*.xbps ${{ matrix.template }}.* | docker import - "${IMAGE}"
-          docker push "${IMAGE}"
+          set -exo pipefail
+
+          echo "${{ needs.build.outputs[format('{0}_templates', matrix.config.arch)] }}" | while IFS= read -r TEMPLATE
+          do
+            IMAGE="ghcr.io/asssaf/void-packages-${TEMPLATE}:${{ matrix.config.arch }}-latest"
+            tar c ${template}*.xbps ${TEMPLATE}.* | docker import - "${IMAGE}"
+            docker push "${IMAGE}"
+          done
