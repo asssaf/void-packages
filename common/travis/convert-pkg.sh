@@ -42,7 +42,10 @@ function convert_package() {
 
 while IFS= read -r PKG || [ -n "${PKG}" ]
 do
-	convert_package  "${PKG}"
+	for SUBPKG in $(xsubpkg $PKG)
+	do
+		convert_package "${SUBPKG}"
+	done
 done < "/tmp/templates"
 
 exit 0

@@ -128,26 +128,38 @@ jobs:
         run: |
           set -exo pipefail
           if [ "$GITHUB_EVENT_NAME" = "workflow_dispatch" ]; then
+            sudo -Eu builder ./xbps-src sort-dependencies ${{ inputs.templates }} | tee /tmp/templates
             if [ "${{ inputs.skip_build }}" = "true" ]
             then
+              echo "XBPS_PRESERVE_PKGS=yes" >> etc/conf
+
               XBPS_ARCH=${{ matrix.config.arch }} xbps-install -Sy -i --repository "${{ matrix.config.repo }}"
 
-              touch /tmp/templates
               for PKG in ${{ inputs.templates }}
               do
-                if XBPS_ARCH=${{ matrix.config.arch }} xbps-query --repository "${{ matrix.config.repo }}" "$PKG"
-                then
-                  echo "$PKG will be downloaded"
-                  echo "$PKG" >> /tmp/download
-                else
-                  echo "$PKG will be built"
-                  echo "$PKG" >> /tmp/build
-                fi
+                download=1
+                SUBPKGS="$(sudo -Eu builder xsubpkg $PKG)"
+                for SUBPKG in $SUBPKGS
+                do
+                  if XBPS_ARCH=${{ matrix.config.arch }} xbps-query --repository "${{ matrix.config.repo }}" "$SUBPKG"
+                  then
+                    echo "$SUBPKG found"
+                  else
+                    echo "$SUBPKG not found"
+                    download=0
+                    break
+                  fi
+                done
+                [ $download -eq 1 ] && echo "$SUBPKGS" | xargs -n 1 >> /tmp/download
               done
-            fi
-            if [ -e "/tmp/build" ]
-            then
-              sudo -Eu builder ./xbps-src sort-dependencies $(cat /tmp/build) | tee /tmp/templates
+              if [ -e "/tmp/download" ]
+              then
+                mkdir -p /target/var/db/xbps
+                ln -s /var/db/xbps/keys /target/var/db/xbps/
+                XBPS_TARGET_ARCH=${{ matrix.config.arch }} xbps-install -Sy -R ${{ matrix.config.repo }} -r /target -D $(cat /tmp/download)
+                cp -s /target/var/cache/xbps/* hostdir/binpkgs/
+                cat /tmp/download >> /tmp/templates
+              fi
             fi
           else
             sudo -Eu builder common/travis/changed_templates.sh
@@ -183,18 +195,7 @@ jobs:
           set -exo pipefail
           xbps-install -Sy squashfs-tools zstd
 
-          touch /tmp/build
-          cp /tmp/build /tmp/templates
-          if [ -e "/tmp/download" ]
-          then
-            mkdir -p /target/var/db/xbps
-            ln -s /var/db/xbps/keys /target/var/db/xbps/
-            XBPS_TARGET_ARCH=${{ matrix.config.arch }} xbps-install -Sy -R ${{ matrix.config.repo }} -r /target -D $(cat /tmp/download)
-            cp -s /target/var/cache/xbps/* hostdir/binpkgs/
-            cat /tmp/download >> /tmp/templates
-          fi
-
-          common/travis/convert-pkg.sh "$ARCH"
+          sudo -Eu builder common/travis/convert-pkg.sh "$ARCH"
 
       - name: Fix nodejs installation for actions
         run: |
