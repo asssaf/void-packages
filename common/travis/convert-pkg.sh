@@ -18,12 +18,12 @@ function convert_package() {
 	local VCE_INSTALLED="/usr/local/vce.installed/${PKG}"
 	local PKG_DIR="$(mktemp -d)"
 
-	if [ ! -e ${DEST_DIR}/${PKG}*.xbps ]
+	if [ ! -e ${DEST_DIR}/${PKG}-[0-9]*.xbps ]
 	then
 		echo "Skipping ${PKG}"
 		return 0
 	fi
-	zstdcat ${DEST_DIR}/${PKG}*.xbps | tar xv -C ${PKG_DIR}
+	zstdcat ${DEST_DIR}/${PKG}-[0-9]*.xbps | tar xv -C ${PKG_DIR}
 
 	mkdir -p "${PKG_DIR}/${VCE_INSTALLED}"
 	if [ -e "${PKG_DIR}/INSTALL" ]; then mv "${PKG_DIR}/INSTALL" "${PKG_DIR}/${VCE_INSTALLED}/"; fi
