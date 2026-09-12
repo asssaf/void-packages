@@ -132,6 +132,7 @@ jobs:
             if [ "${{ inputs.skip_build }}" = "true" ]
             then
               echo "XBPS_PRESERVE_PKGS=yes" >> etc/conf
+              echo "XBPS_VERBOSE=2" >> etc/conf
 
               XBPS_ARCH=${{ matrix.config.arch }} xbps-install -Sy -i --repository "${{ matrix.config.repo }}"
 
