@@ -1,0 +1,22 @@
+#!/bin/sh
+
+set -eu
+
+exec 2>&1
+
+# shuck: source=/dev/null
+[ -r ./conf ] && . ./conf
+
+
+echo "Waiting for ${DEVICE}..."
+while ! grep -q "${DEVICE}:" /proc/net/dev
+do
+        sleep 5
+done
+
+ip link set dev "${DEVICE}" up
+
+
+echo "Starting dhcp client for ${DEVICE}"
+
+exec /sbin/udhcpc -f -i "${DEVICE}" -x hostname:$(/bin/hostname)
