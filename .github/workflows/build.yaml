@@ -159,7 +159,6 @@ jobs:
                 ln -s /var/db/xbps/keys /target/var/db/xbps/
                 XBPS_TARGET_ARCH=${{ matrix.config.arch }} xbps-install -Sy -R ${{ matrix.config.repo }} -r /target -D $(cat /tmp/download)
                 cp -s /target/var/cache/xbps/* hostdir/binpkgs/
-                cat /tmp/download >> /tmp/templates
               fi
             fi
           else
